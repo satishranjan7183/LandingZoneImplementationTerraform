@@ -1,3 +1,4 @@
+#------------------------------- Providers Code --------------------------------------------------------
 terraform {
   required_providers {
     azurerm = {
@@ -13,6 +14,17 @@ provider "azurerm" {
   subscription_id = "38d52de4-2fb6-4a85-96fb-5ba22d363e4e"
 }
 
+# --------------------------We can put backend code here, currently i put commented ---------------------
+# terraform {
+#   backend "azurerm" {
+#     resource_group_name  = azurerm_resource_group.example.name
+#     storage_account_name = "yourstorageaccount"  # Must be globally unique
+#     container_name       = "yourcontainer"        # Must exist
+#     key                  = "terraform.tfstate"    # Name of the state file
+#   }
+# }
+
+# ----------------------------------Define Variable and pass by default value---------------------------------------
 variable "rgname" {
  type = string
   default = "devrg" 
@@ -27,11 +39,47 @@ variable "enable_public_ip" {
   default = false
 }
 
+variable "app_code" {
+  type = string
+  default = "prodapp"
+}
+
+variable "cost_center" {
+  type = string
+  default = "john_453"
+}
+
+variable "environment" {
+  type = string
+  default = "dev"
+}
+variable "app_id" {
+  type = string
+  default = "tea123"
+}
+# ----------------------------------Define locals Variable and use in resource---------------------------------------
+locals {
+  # common tags
+  comman_tags = {
+    app_code = var.app_code
+    cost_center = var.cost_center
+    environment = var.environment
+    app_id = var.app_id
+  }
+# resource spefic tags
+rg_tags = {
+size = "80"
+}
+}
+
+# -------------------------------------Define Data Block -----------------------------------------------------
 data "azurerm_client_config" "clientconfigdata" {}
 
+# VM Code which cover concept workspace,parameterize value, condition apply, provisiner, output block------------------- 
 resource "azurerm_resource_group" "rg" {
   name     = "${var.rgname}-${terraform.workspace}"
   location = "${var.rgloc}"
+  tags = merge(local.comman_tags, local.rg_tags)
 }
 
 resource "azurerm_virtual_network" "vnet" {
@@ -39,6 +87,7 @@ resource "azurerm_virtual_network" "vnet" {
   address_space       = ["10.0.0.0/16"]
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
+  tags = local.comman_tags
 }
 
 resource "azurerm_subnet" "subnet" {
@@ -67,18 +116,6 @@ resource "azurerm_network_interface" "nic" {
     private_ip_address_allocation = "Dynamic"
     public_ip_address_id = var.enable_public_ip ? azurerm_public_ip.pip[0].id : null
   }
-}
-
-resource "random_password" "apass" {
-  length           = 16
-  special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
-}
-
-resource "azurerm_key_vault_secret" "password" {
-  name         = "${var.rgname}-${terraform.workspace}-password"
-  value        = random_password.apass.result
-  key_vault_id = azurerm_key_vault.kv.id
 }
 
 resource "azurerm_linux_virtual_machine" "vm" {
@@ -128,14 +165,7 @@ provisioner "local-exec" {
   }
 }
 
-output "my_vm_id" {
-  value = azurerm_linux_virtual_machine.vm.id
-}
-
-# terraform taint azurerm_linux_virtual_machine.vm
-# terraform apply
-
-
+# VM security------------------------------------------------------------------------------- 
 
 resource "azurerm_key_vault" "kv" {
   name                        = "${var.rgname}-${terraform.workspace}-keyvaults"
@@ -166,6 +196,24 @@ resource "azurerm_key_vault" "kv" {
   }
 }
 
+resource "random_password" "apass" {
+  length           = 16
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
+}
+
+resource "azurerm_key_vault_secret" "password" {
+  name         = "${var.rgname}-${terraform.workspace}-password"
+  value        = random_password.apass.result
+  key_vault_id = azurerm_key_vault.kv.id
+}
+
+output "my_vm_id" {
+  value = azurerm_linux_virtual_machine.vm.id
+}
+
+# terraform taint azurerm_linux_virtual_machine.vm
+# terraform apply
 
 resource "azurerm_network_security_group" "nsg" {
   name                = "${var.rgname}-${terraform.workspace}-nsg"
